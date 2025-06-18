@@ -16,8 +16,10 @@ import (
 func main() {
 	config.LoadEnv()
 	db.Connect(config.DBURL)
-	db.Migrate()
 	defer db.Close()
+	
+	db.Migrate()
+	go db.WatchForChanges()
 
 	role := os.Getenv("SERVER_ROLE")
 	switch role {

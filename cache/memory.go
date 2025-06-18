@@ -24,3 +24,11 @@ func Get(name string, qtype uint16) []dns.RR {
 func Set(name string, qtype uint16, records []dns.RR) {
 	recordCache.Store(key(name, qtype), records)
 }
+
+func Clear() {
+	recordCache.Range(func(k, v any) bool {
+		recordCache.Delete(k)
+		return true
+	})
+}
+

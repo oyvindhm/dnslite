@@ -9,9 +9,11 @@ import (
 	"dnslite/db"
 	"github.com/miekg/dns"
 	"dnslite/api"
+	"dnslite/cache"
 )
 
 func StartSlaveSync(masterURL string, interval time.Duration) {
+	cache.Clear()
 	api.UpdateLastSync(time.Now())
 	go func() {
 		for {

@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// TruncateAll wipes all zone-related data (slave use only)
 func TruncateAll() error {
 	_, err := conn.Exec(context.Background(), `
 		TRUNCATE TABLE dnssec_rrsigs, records, zones RESTART IDENTITY CASCADE;
@@ -16,7 +15,7 @@ func TruncateAll() error {
 
 
 func Migrate() {
-	stmts := []string{
+		stmts := []string{
 		`CREATE TABLE IF NOT EXISTS zones (
 			id SERIAL PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
@@ -31,6 +30,7 @@ func Migrate() {
 			ttl INT DEFAULT 3600,
 			data TEXT NOT NULL
 		);`,
+
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_records_unique ON records(name, type, data);`,
 
 		`CREATE INDEX IF NOT EXISTS idx_records_name_type ON records(name, type);`,
@@ -43,6 +43,18 @@ func Migrate() {
 		);`,
 
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_rrsig_name_type ON dnssec_rrsigs(name, type_covered);`,
+
+		`CREATE OR REPLACE FUNCTION notify_record_change()
+			RETURNS trigger AS $$
+			BEGIN
+			PERFORM pg_notify('record_change', '');
+			RETURN NULL;
+			END;
+		$$ LANGUAGE plpgsql;`,
+
+		`CREATE TRIGGER record_insert AFTER INSERT ON records FOR EACH STATEMENT EXECUTE FUNCTION notify_record_change();`,
+		`CREATE TRIGGER record_update AFTER UPDATE ON records FOR EACH STATEMENT EXECUTE FUNCTION notify_record_change();`,
+		`CREATE TRIGGER record_delete AFTER DELETE ON records FOR EACH STATEMENT EXECUTE FUNCTION notify_record_change();`,
 	}
 
 	for _, stmt := range stmts {
