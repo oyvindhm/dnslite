@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:15
+    container_name: postgresdb
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "dnslite"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  dns:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./secrets:/app/secrets
+    env_file:
+      - .env
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+      - "8080:8080/tcp"
+
+volumes:
+  pgdata:
