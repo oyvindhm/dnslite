@@ -16,6 +16,7 @@ import (
 func main() {
 	config.LoadEnv()
 	db.Connect(config.DBURL)
+	db.Migrate()
 	defer db.Close()
 
 	role := os.Getenv("SERVER_ROLE")
@@ -29,6 +30,10 @@ func main() {
 
 	case "slave":
 		log.Println("🧠 Running in SLAVE mode")
+		err := db.TruncateAll()
+		if err != nil {
+			log.Fatalf("❌ Failed to truncate slave DB: %v", err)
+		}
 		slave.StartSlaveSync(os.Getenv("MASTER_URL"), 5*time.Minute)
 
 	default:

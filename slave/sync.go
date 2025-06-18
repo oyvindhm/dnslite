@@ -33,6 +33,7 @@ func SyncFromMaster(masterURL string) {
 		Zone    string   `json:"zone"`
 		Records []string `json:"records"`
 	}
+
 	var zones []ZoneFile
 	if err := json.NewDecoder(resp.Body).Decode(&zones); err != nil {
 		log.Println("❌ Failed to decode master response:", err)
@@ -41,17 +42,18 @@ func SyncFromMaster(masterURL string) {
 
 	synced := 0
 	for _, z := range zones {
-		// Insert or ensure zone exists
+		log.Printf("📥 Processing zone: %s", z.Zone)
+
 		_, err := db.InsertZone(z.Zone)
 		if err != nil {
-			log.Printf("⚠️ Could not insert zone %s: %v", z.Zone, err)
+			log.Printf("⚠️ Could not insert or find zone %s: %v", z.Zone, err)
 			continue
 		}
 
 		for _, rrStr := range z.Records {
 			rr, err := dns.NewRR(rrStr)
 			if err != nil {
-				log.Printf("⚠️ Invalid RR in zone %s: %s", z.Zone, rrStr)
+				log.Printf("⚠️ Invalid RR in zone %s: %s (%v)", z.Zone, rrStr, err)
 				continue
 			}
 
@@ -59,9 +61,15 @@ func SyncFromMaster(masterURL string) {
 			qtype := rr.Header().Rrtype
 
 			if qtype == dns.TypeRRSIG {
-				_ = db.StoreRRSIG(name, qtype, rr)
+				err = db.StoreRRSIG(name, qtype, rr)
+				if err != nil {
+					log.Printf("❌ Failed to store RRSIG for %s: %v", name, err)
+				}
 			} else {
-				_ = db.UpsertRecord(name, qtype, rr)
+				err = db.UpsertRecord(name, qtype, rr)
+				if err != nil {
+					log.Printf("❌ Failed to upsert RR %s (%s): %v", name, dns.TypeToString[qtype], err)
+				}
 			}
 		}
 		synced++
@@ -69,3 +77,4 @@ func SyncFromMaster(masterURL string) {
 
 	log.Printf("🔄 Synced %d zones from master", synced)
 }
+
