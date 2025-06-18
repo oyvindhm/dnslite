@@ -224,7 +224,28 @@ func GetAllZoneNames() ([]string, error) {
 	return zones, nil
 }
 
+func DeleteAllRecordsForZoneID(zoneID int) error {
+	// Delete RRSIGs first
+	_, err := conn.Exec(context.Background(), `
+		DELETE FROM dnssec_rrsigs
+		WHERE name IN (
+			SELECT name FROM records WHERE zone_id = $1
+		);
+	`, zoneID)
+	if err != nil {
+		return err
+	}
+
+	// Then delete records
+	_, err = conn.Exec(context.Background(), `
+		DELETE FROM records WHERE zone_id = $1;
+	`, zoneID)
+	return err
+}
+
+
 type RRSetKey struct {
 	Name string
 	Type uint16
 }
+
