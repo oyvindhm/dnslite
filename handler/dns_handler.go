@@ -25,6 +25,7 @@ func StartDNSServers(addr string) {
 func handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg := dns.Msg{}
 	msg.SetReply(r)
+	msg.Authoritative = true
 
 	for _, q := range r.Question {
 		name := strings.ToLower(dns.Fqdn(q.Name))
