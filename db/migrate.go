@@ -13,9 +13,24 @@ func TruncateAll() error {
 	return err
 }
 
+func createTriggerIfNotExists(name, table, event, function string) error {
+	query := `
+		DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_trigger WHERE tgname = $1
+			) THEN
+				EXECUTE format('CREATE TRIGGER %s %s ON %s FOR EACH STATEMENT EXECUTE FUNCTION %s()', $1, $2, $3, $4);
+			END IF;
+		END;
+		$$;
+	`
+	_, err := conn.Exec(context.Background(), query, name, event, table, function)
+	return err
+}
 
 func Migrate() {
-		stmts := []string{
+	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS zones (
 			id SERIAL PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
@@ -51,10 +66,6 @@ func Migrate() {
 			RETURN NULL;
 			END;
 		$$ LANGUAGE plpgsql;`,
-
-		`CREATE TRIGGER record_insert AFTER INSERT ON records FOR EACH STATEMENT EXECUTE FUNCTION notify_record_change();`,
-		`CREATE TRIGGER record_update AFTER UPDATE ON records FOR EACH STATEMENT EXECUTE FUNCTION notify_record_change();`,
-		`CREATE TRIGGER record_delete AFTER DELETE ON records FOR EACH STATEMENT EXECUTE FUNCTION notify_record_change();`,
 	}
 
 	for _, stmt := range stmts {
@@ -72,6 +83,17 @@ func Migrate() {
 	`)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		log.Fatalf("Failed to add unique constraint: %v", err)
+	}
+
+	// Safe trigger creation
+	if err := createTriggerIfNotExists("record_insert", "records", "AFTER INSERT", "notify_record_change"); err != nil {
+		log.Fatalf("Failed to create trigger record_insert: %v", err)
+	}
+	if err := createTriggerIfNotExists("record_update", "records", "AFTER UPDATE", "notify_record_change"); err != nil {
+		log.Fatalf("Failed to create trigger record_update: %v", err)
+	}
+	if err := createTriggerIfNotExists("record_delete", "records", "AFTER DELETE", "notify_record_change"); err != nil {
+		log.Fatalf("Failed to create trigger record_delete: %v", err)
 	}
 
 	log.Println("✅ Database schema migration completed.")
