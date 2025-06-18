@@ -13,22 +13,6 @@ func TruncateAll() error {
 	return err
 }
 
-func createTriggerIfNotExists(name, table, event, function string) error {
-	query := `
-		DO $$
-		BEGIN
-			IF NOT EXISTS (
-				SELECT 1 FROM pg_trigger WHERE tgname = $1
-			) THEN
-				EXECUTE format('CREATE TRIGGER %s %s ON %s FOR EACH STATEMENT EXECUTE FUNCTION %s()', $1, $2, $3, $4);
-			END IF;
-		END;
-		$$;
-	`
-	_, err := conn.Exec(context.Background(), query, name, event, table, function)
-	return err
-}
-
 func Migrate() {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS zones (
@@ -47,7 +31,6 @@ func Migrate() {
 		);`,
 
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_records_unique ON records(name, type, data);`,
-
 		`CREATE INDEX IF NOT EXISTS idx_records_name_type ON records(name, type);`,
 
 		`CREATE TABLE IF NOT EXISTS dnssec_rrsigs (
@@ -62,10 +45,35 @@ func Migrate() {
 		`CREATE OR REPLACE FUNCTION notify_record_change()
 			RETURNS trigger AS $$
 			BEGIN
-			PERFORM pg_notify('record_change', '');
-			RETURN NULL;
+				PERFORM pg_notify('record_change', '');
+				RETURN NULL;
 			END;
-		$$ LANGUAGE plpgsql;`,
+			$$ LANGUAGE plpgsql;`,
+
+		// Protect trigger creation via anonymous DO block
+		`DO $$
+			BEGIN
+				IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'record_insert') THEN
+					CREATE TRIGGER record_insert AFTER INSERT ON records FOR EACH STATEMENT EXECUTE FUNCTION notify_record_change();
+				END IF;
+			END;
+		$$;`,
+
+		`DO $$
+			BEGIN
+				IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'record_update') THEN
+					CREATE TRIGGER record_update AFTER UPDATE ON records FOR EACH STATEMENT EXECUTE FUNCTION notify_record_change();
+				END IF;
+			END;
+		$$;`,
+
+		`DO $$
+			BEGIN
+				IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'record_delete') THEN
+					CREATE TRIGGER record_delete AFTER DELETE ON records FOR EACH STATEMENT EXECUTE FUNCTION notify_record_change();
+				END IF;
+			END;
+		$$;`,
 	}
 
 	for _, stmt := range stmts {
@@ -75,7 +83,6 @@ func Migrate() {
 		}
 	}
 
-	// Optional: Add a zone-aware unique constraint on records
 	_, err := conn.Exec(context.Background(), `
 		ALTER TABLE records
 		ADD CONSTRAINT unique_record_entry
@@ -83,17 +90,6 @@ func Migrate() {
 	`)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		log.Fatalf("Failed to add unique constraint: %v", err)
-	}
-
-	// Safe trigger creation
-	if err := createTriggerIfNotExists("record_insert", "records", "AFTER INSERT", "notify_record_change"); err != nil {
-		log.Fatalf("Failed to create trigger record_insert: %v", err)
-	}
-	if err := createTriggerIfNotExists("record_update", "records", "AFTER UPDATE", "notify_record_change"); err != nil {
-		log.Fatalf("Failed to create trigger record_update: %v", err)
-	}
-	if err := createTriggerIfNotExists("record_delete", "records", "AFTER DELETE", "notify_record_change"); err != nil {
-		log.Fatalf("Failed to create trigger record_delete: %v", err)
 	}
 
 	log.Println("✅ Database schema migration completed.")
